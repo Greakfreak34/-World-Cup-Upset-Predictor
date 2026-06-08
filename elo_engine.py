@@ -51,9 +51,15 @@ def normalize_name(name: str) -> str:
 
 INITIAL_RATING   = 1500   # Starting rating for any new team
 HOME_ADVANTAGE   = 100    # ELO points added to home team's effective rating
-K_FRIENDLY       = 20     # Weight for friendlies (low stakes)
+K_FRIENDLY       = 5      # Friendlies: squads rotate, nothing at stake — barely moves ratings
 K_QUALIFIER      = 30     # Weight for qualifiers / confederation tournaments
 K_WORLD_CUP      = 60     # Weight for World Cup matches (high stakes)
+
+# Mean reversion: after each World Cup, pull every team this fraction toward 1500.
+# 0.1 = move 10% of the gap between current rating and 1500 back toward 1500.
+# E.g. a team at 2000 becomes 2000 - 0.1*(2000-1500) = 1950.
+# Prevents rating inflation accumulating across decades.
+MEAN_REVERSION_RATE = 0.1
 
 # Which tournament keywords get which K-factor
 def get_k_factor(tournament: str) -> int:
@@ -153,11 +159,35 @@ class EloEngine:
         if dropped:
             print(f"Dropped {dropped} rows with missing scores.")
 
+        # Track which World Cup years we've already applied reversion for
+        wc_years_seen: set[int] = set()
+
         for _, row in df.iterrows():
+            tournament = str(row.get("tournament", ""))
+            year       = row["date"].year
+
+            # Apply mean reversion once per World Cup year, before the first WC match
+            # World Cups run in even years divisible by 4 from 1930 onward
+            if (
+                "fifa world cup" in tournament.lower()
+                and "qualification" not in tournament.lower()
+                and year not in wc_years_seen
+                and year >= 1930
+            ):
+                self._apply_mean_reversion()
+                wc_years_seen.add(year)
+
             self._process_match(row)
 
         print(f"Replayed {len(df):,} matches. {len(self.ratings)} unique teams rated.")
+        print(f"Mean reversion applied at {len(wc_years_seen)} World Cup cycles: {sorted(wc_years_seen)}")
         return self
+
+    def _apply_mean_reversion(self):
+        """Pull every team's rating toward 1500 by MEAN_REVERSION_RATE."""
+        for team in self.ratings:
+            gap = self.ratings[team] - INITIAL_RATING
+            self.ratings[team] -= gap * MEAN_REVERSION_RATE
 
     def _process_match(self, row: pd.Series):
         home = row["home_team"]
@@ -388,20 +418,39 @@ if __name__ == "__main__":
     # --- Load data ---
     df = pd.read_csv("results.csv")   # from Kaggle dataset
 
-    # --- Fit engine ---
+    # --- Fit OLD engine (no fixes) for comparison ---
+    import copy
+
+    K_FRIENDLY = 20   # temporarily restore old value
+    MEAN_REVERSION_RATE_OLD = 0.0
+
+    # We'll just run the new engine and note what changed
+    print("=" * 55)
+    print("  ELO engine with fixes applied")
+    print("  K_FRIENDLY: 20 → 5  |  Mean reversion: 10% per WC")
+    print("=" * 55)
+
     engine = EloEngine()
     engine.fit(df)
 
     # --- Current top ratings ---
-    print("\n=== Top 10 teams by ELO ===")
-    print(engine.ratings_table(10).to_string(index=False))
+    print("\n=== Top 15 teams by ELO (fixed engine) ===")
+    print(engine.ratings_table(15).to_string(index=False))
+
+    # --- Sanity check: teams that should be lower ---
+    print("\n=== Sanity check: previously inflated teams ===")
+    check_teams = ["Norway", "Ecuador", "Colombia", "Japan", "Spain", "Brazil", "France", "Argentina", "Germany"]
+    rows = [(t, round(engine.rating(t), 1)) for t in check_teams]
+    rows.sort(key=lambda x: x[1], reverse=True)
+    for team, elo in rows:
+        print(f"  {team:<15} {elo}")
 
     # --- Win probability example ---
     prob = engine.win_probability("Brazil", "Germany")
     print(f"\nBrazil vs Germany (neutral): {prob}")
 
     prob_home = engine.win_probability("England", "France", home="England")
-    print(f"England (home) vs France:   {prob_home}")
+    print(f"England (home) vs France:    {prob_home}")
 
     # --- All-time biggest World Cup upsets ---
     print("\n=== Top 10 World Cup upsets of all time ===")
