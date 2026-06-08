@@ -310,9 +310,12 @@ class EloEngine:
 
     @staticmethod
     def _is_upset(score_home: float, prob_home: float) -> bool:
-        if score_home == 1.0 and prob_home < 0.5:
+        # Require the winner to have had < 35% pre-match probability.
+        # Avoids flagging coin-flip results (e.g. 51% vs 49%) as upsets.
+        UPSET_THRESHOLD = 0.35
+        if score_home == 1.0 and prob_home < UPSET_THRESHOLD:
             return True
-        if score_home == 0.0 and prob_home > 0.5:
+        if score_home == 0.0 and (1 - prob_home) < UPSET_THRESHOLD:
             return True
         return False
 
@@ -539,13 +542,6 @@ if __name__ == "__main__":
     print("\n=== Group sim: Brazil / France / Argentina / Portugal ===")
     print(simulate_group(["Brazil", "France", "Argentina", "Portugal"], engine).to_string(index=False))
 
-    # Build classifier features (slow — comment out if just testing the engine)
-    print("\n=== Building classifier feature matrix ===")
-    features = build_classifier_features(engine)
-    print(features[["date", "home_team", "away_team", "elo_diff",
-                     "form_elo_diff", "conf_k_mult", "same_conf",
-                     "pre_prob_home", "target"]].tail(10).to_string(index=False))
-
-    # Save for use in the classifier notebook
-    features.to_csv("classifier_features.csv", index=False)
-    print("\nSaved → classifier_features.csv")
+    # classifier_features.csv is already generated — load it directly in the
+    # classifier notebook via:  pd.read_csv("classifier_features.csv")
+    # To regenerate it, run:    build_classifier_features(engine)
