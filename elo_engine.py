@@ -545,3 +545,17 @@ if __name__ == "__main__":
     # classifier_features.csv is already generated — load it directly in the
     # classifier notebook via:  pd.read_csv("classifier_features.csv")
     # To regenerate it, run:    build_classifier_features(engine)
+
+
+teams_to_check = [
+    'Austria', 'Jordan', 'Switzerland', 'Belgium', 'Iran',
+    'Bosnia and Herzegovina', 'Netherlands', 'Scotland', 'Haiti',
+    'Curaçao', 'Uzbekistan', 'DR Congo', 'Algeria', 'Cape Verde', 'Iraq'
+]
+
+history = engine.get_history_df()
+
+for team in teams_to_check:
+    r = engine.rating(team)
+    matches = ((history['home_team'] == team) | (history['away_team'] == team)).sum()
+    print(f"{team:<30} ELO: {r:>7.1f}   matches in dataset: {matches}")
